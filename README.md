@@ -1,215 +1,139 @@
 # Telegraph-Image
+免费图片托管解决方案，Flickr/imgur替代品。使用Cloudflare Pages和Telegraph。
 
-Free Image Hosting solution, Flickr/imgur alternative. Using Cloudflare Pages and the Telegram Bot API (Telegram Channel).
+[English](README-EN.md)|中文
 
-English|[中文](README-zh.md)
+## 如何部署
 
-> [!IMPORTANT]
->
-> Since the original Telegraph API interface was closed by the official, you need to switch the upload channel to Telegram Channel. Please set `TG_Bot_Token` and `TG_Chat_ID` according to the deployment requirements in the documentation, otherwise the upload function will not work properly.
+### 提前准备
+你唯一需要提前准备的就是一个Cloudflare账户 （如果需要在自己的服务器上部署，不依赖Cloudflare，可参考[#46](https://github.com/cf-pages/Telegraph-Image/issues/46) ）
 
-## How to Obtain Telegram `Bot_Token` and `Chat_ID`
+### 手把手教程
+简单3步，即可部署本项目，拥有自己的图床
 
-If you don't have a Telegram account yet, please create one first. Then, follow these steps to get the `BOT_TOKEN` and `CHAT_ID`:
+1.下载或Fork本仓库 (注意：目前请使用fork，在使用下载[#14](https://github.com/cf-pages/Telegraph-Image/issues/14)部署存在问题)
 
-1. **Get the `Bot_Token`**
-   - In Telegram, send the command `/newbot` to [@BotFather](https://t.me/BotFather), and follow the prompts to input your bot's name and username. Once successfully created, you will receive a `BOT_TOKEN`, which is used to interact with the Telegram API.
-
-![202409071744569](https://github.com/user-attachments/assets/04f01289-205c-43e0-ba03-d9ab3465e349)
-
-2. **Set the bot as a channel administrator**
-   - Create a new channel (Channel), enter the channel and select channel settings. Add the bot you just created as a channel administrator, so it can send messages.
-
-![202409071758534](https://github.com/user-attachments/assets/cedea4c7-8b31-42e0-98a1-8a72ff69528f)
-
-![202409071758796](https://github.com/user-attachments/assets/16393802-17eb-4ae4-a758-f0fdb7aaebc4)
-
-
-3. **Get the `Chat_ID`**
-   - Get your channel ID through [@VersaToolsBot](https://t.me/VersaToolsBot). Send a message to this bot and follow the instructions to receive your `CHAT_ID` (the ID of your channel).
-   - Or get your channel ID through [@GetTheirIDBot](https://t.me/GetTheirIDBot). Send a message to this bot and follow the instructions to receive your `CHAT_ID` (the ID of your channel).
-
-   ![202409071751619](https://github.com/user-attachments/assets/59fe8b20-c969-4d13-8d46-e58c0e8b9e79)
-
-Finally, go to the Cloudflare Pages backend to set the relevant environment variables (Note: After modifying environment variables, you need to redeploy for the changes to take effect)
-| Environment Variable | Example Value              | Description                                                                            |
-|---------------------|---------------------------|----------------------------------------------------------------------------------------|
-| `TG_Bot_Token`      | `123468:AAxxxGKrn5`        | Telegram Bot Token obtained from [@BotFather](https://t.me/BotFather).                |
-| `TG_Chat_ID`        | `-1234567`                 | Channel ID, ensure the TG Bot is an administrator of the channel or group.           |
-
-## How to Deploy
-
-### Preparation
-
-The only thing you need to prepare in advance is a Cloudflare account (If you need to deploy on your own server without relying on Cloudflare, please refer to [#46](https://github.com/cf-pages/Telegraph-Image/issues/46))
-
-### Step by Step Tutorial
-
-3 simple steps to deploy this project and have your own image hosting
-
-1. Fork this repository (Note: You must deploy using Git or Wrangler CLI tool for it to work properly, [Documentation](https://developers.cloudflare.com/pages/functions/get-started/#deploy-your-function))
-
-2. Open the Cloudflare Dashboard, enter the Pages management page, select Create Project, then choose `Connect to Git provider`
-
+2.打开Cloudflare Dashboard，进入Pages管理页面，选择创建项目，如果在第一步中选择的是fork本仓库，则选择`连接到 Git 提供程序`，如果第一步中选择的是下载本仓库则选择`直接上传`
 ![1](https://telegraph-image.pages.dev/file/8d4ef9b7761a25821d9c2.png)
 
-3. Follow the prompts on the page to enter the project name, select the git repository you need to connect to, then click `Deploy site` to complete the deployment
+3. 按照页面提示输入项目名称，选择需要连接的git仓库（第一步选择的是fork）或是上传刚刚下载的仓库文件（第一步选择的是下载本仓库），点击`部署站点`即可完成部署
 
-## Features
+## 特性
+1.无限图片储存数量，你可以上传不限数量的图片
 
-1. Unlimited image storage, you can upload an unlimited number of images
+2.无需购买服务器，托管于Cloudflare的网络上，当使用量不超过Cloudflare的免费额度时，完全免费
 
-2. No need to purchase a server, hosted on Cloudflare's network. When usage does not exceed Cloudflare's free quota, it's completely free
+3.无需购买域名，可以使用Cloudflare Pages提供的`*.pages.dev`的免费二级域名，同时也支持绑定自定义域名
 
-3. No need to purchase a domain name, you can use the free second-level domain `*.pages.dev` provided by Cloudflare Pages, and also supports binding custom domain names
+4.支持图片审查API，可根据需要开启，开启后不良图片将自动屏蔽，不再加载
 
-4. Supports image review API, can be enabled as needed. When enabled, inappropriate images will be automatically blocked and no longer loaded
+5.支持后台图片管理，可以对上传的图片进行在线预览，添加白名单，黑名单等操作
 
-5. Supports backend image management, allowing you to preview uploaded images online, add to whitelist, blacklist, and other operations
-
-### Bind Custom Domain
-
-In the custom domain section of Pages, bind a domain name that exists in Cloudflare. For domain names hosted in Cloudflare, DNS records will be automatically modified
+### 绑定自定义域名
+在pages的自定义域里面，绑定cloudflare中存在的域名，在cloudflare托管的域名，自动会修改dns记录
 ![2](https://telegraph-image.pages.dev/file/29546e3a7465a01281ee2.png)
 
-### Enable Image Review
+### 开启图片审查
+1.请前往https://moderatecontent.com/ 注册并获得一个免费的用于审查图像内容的API key
 
-1. Please go to https://moderatecontent.com/ to register and get a free API key for reviewing image content
+2.打开Cloudflare Pages的管理页面，依次点击`设置`，`环境变量`，`添加环境变量`
 
-2. Open the Cloudflare Pages management page, click `Settings`, `Environment Variables`, `Add Environment Variables` in sequence
+3.添加一个`变量名称`为`ModerateContentApiKey`，`值`为你刚刚第一步获得的`API key`，点击`保存`即可
 
-3. Add a `variable name` as `ModerateContentApiKey`, `value` as the `API key` you just obtained in step 1, then click `Save`
+注意：由于所做的更改将在下次部署时生效，你或许还需要进入`部署`页面，重新部署一下该本项目
 
-Note: Since the changes will take effect on the next deployment, you may also need to go to the `Deployments` page and redeploy the project
-
-After enabling image review, the first image load will be slow because review takes time. Subsequent image loads will not be affected due to caching
+开启图片审查后，因为审查需要时间，首次的图片加载将会变得缓慢，之后的图片加载由于存在缓存，并不会受到影响
 ![3](https://telegraph-image.pages.dev/file/bae511fb116b034ef9c14.png)
 
-### Limitations
+### 限制
+1.由于图片文件实际存储于Telegraph，Telegraph限制上传的图片大小最大为5MB
 
-1. Uploaded images are sent via the Telegram Bot API and stored on Telegram's servers. Telegram currently limits files sent by bots to a maximum size of 50MB per file; uploads larger than this will fail
+2.由于使用Cloudflare的网络，图片的加载速度在某些地区可能得不到保证
 
-2. Due to the use of Cloudflare's network, image loading speed may not be guaranteed in some regions
+3.Cloudflare Function免费版每日限制100,000个请求（即上传或是加载图片的总次数不能超过100,000次）如超过可能需要选择购买Cloudflare Function的付费套餐，如开启图片管理功能还会存在KV操作数量的限制，如超过需购买付费套餐
 
-3. The free version of Cloudflare Function is limited to 100,000 requests per day (i.e., the total number of uploads or image loads cannot exceed 100,000). If exceeded, you may need to purchase the paid plan of Cloudflare Function. If image management is enabled, there will also be limitations on KV operation count, and you may need to purchase the paid plan if exceeded
+### 感谢
+Hostloc @feixiang和@乌拉擦 提供的思路和代码
 
-### Thanks
+## 更新日志
+2023年1月18日--图片管理功能更新
 
-Ideas and code provided by Hostloc @feixiang and @乌拉擦
-
-## Update Log
-July 6, 2024 - Backend Management Page Update
-
-- Support for two new management page views (Grid view and Waterfall view)
-
-    1. Grid view, thanks to @DJChanahCJD for the submitted code
-        Supports batch delete/copy links
-        Supports sorting in reverse chronological order
-        Supports pagination
-        ![](https://camo.githubusercontent.com/a0551aa92f39517f0b30d86883882c1af4c9b3486e540c7750af4dbe707371fa/68747470733a2f2f696d6774632d3369312e70616765732e6465762f66696c652f6262616438336561616630356635333731363237322e706e67)
-    2. Waterfall view, thanks to @panther125 for the submitted code
-        ![](https://camo.githubusercontent.com/63d64491afc5654186248141bd343c363808bf8a77d3b879ffc1b8e57e5ac85d/68747470733a2f2f696d6167652e67696e636f64652e6963752f66696c652f3930346435373737613363306530613936623963642e706e67)
-
-- Added automatic update support
-
-    Now forked projects can automatically sync with the upstream repository to automatically install the latest project features, thanks to @bian2022
-
-    Steps to enable automatic updates:
-        After you fork the project, due to Github's limitations, you need to manually go to the Actions page of your forked project to enable Workflows, and enable Upstream Sync Action. Once enabled, automatic updates will occur hourly:
-        ![](https://im.gurl.eu.org/file/f27ff07538de656844923.png)
-        ![](https://im.gurl.eu.org/file/063b360119211c9b984c0.png)
-    `If you encounter Upstream Sync execution errors, please manually Sync Fork once!`
-
-    Manually update code
-
-    If you want to manually update immediately, you can check [Github's documentation](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/working-with-forks/syncing-a-fork) to learn how to sync your forked project with upstream code.
-
-    You can star/watch this project or follow the author to receive notifications of new feature updates.
-- Added remote telemetry
-
-    You can opt out of telemetry by adding the `disable_telemetry` environment variable
-
-January 18, 2023 - Image Management Feature Update
-
-1. Support for image management feature, disabled by default. To enable, after deployment, go to the backend and click `Settings`->`Functions`->`KV Namespace Bindings`->`Edit Bindings`->`Variable Name` enter: `img_url` `KV Namespace` select the KV storage space you created in advance. After enabling, visit http(s)://your-domain/admin to open the backend management page
-| Variable Name | KV Namespace |
+1、支持图片管理功能，默认是关闭的，如需开启请部署完成后前往后台依次点击`设置`->`函数`->`KV 命名空间绑定`->`编辑绑定`->`变量名称`填写：`img_url` `KV 命名空间` 选择你提前创建好的KV储存空间，开启后访问http(s)://你的域名/admin 即可打开后台管理页面
+| 变量名称      | KV 命名空间 |
 | ----------- | ----------- |
-| img_url | Select the KV storage space created in advance |
+| img_url     | 选择提前创建好的KV储存空间 |
 
 ![](https://im.gurl.eu.org/file/a0c212d5dfb61f3652d07.png)
 ![](https://im.gurl.eu.org/file/48b9316ed018b2cb67cf4.png)
 
-2. The backend management page has a new login verification feature, also disabled by default. To enable, after deployment, go to the backend and click `Settings`->`Environment Variables`->`Define variables for production`->`Edit variables` and add the variables shown in the table below to enable login verification
-| Variable Name | Value |
+2、后台管理页面新增登录验证功能，默认也是关闭的，如需开启请部署完成后前往后台依次点击`设置`->`环境变量`->`为生产环境定义变量`->`编辑变量` 添加如下表格所示的变量即可开启登录验证
+| 变量名称      | 值 |
 | ----------- | ----------- |
-|BASIC_USER = | <Backend management page login username>|
-|BASIC_PASS = | <Backend management page login password>|
+|BASIC_USER   = | <后台管理页面登录用户名称>|
+|BASIC_PASS    = | <后台管理页面登录用户密码>|
 
 ![](https://im.gurl.eu.org/file/dff376498ac87cdb78071.png)
 
-Of course, you can also choose not to set these two values, so that accessing the backend management page will not require verification and will skip the login step directly. This design allows you to use it in combination with Cloudflare Access to achieve email verification code login, Microsoft account login, Github account login, and other functions. It can be integrated with the existing login method on your domain without having to remember another set of backend credentials. For adding Cloudflare Access, please refer to the official documentation. Note that the protected path needs to include /admin and /api/manage/\*
+当然你也可以不设置这两个值，这样访问后台管理页面时将无需验证，直接跳过登录步骤，这一设计使得你可以结合Cloudflare Access进行使用，实现支持邮件验证码登录，Microsoft账户登录，Github账户登录等功能，能够与你域名上原有的登录方式所集成，无需再次记忆多一组后台的账号密码，添加Cloudflare Access的方式请参考官方文档，注意需要保护路径包括/admin 以及 /api/manage/*
 
-3. Added image total count statistics
-When the image management feature is enabled, you can view the number of images in the record at the top of the backend
+3、新增图片总数量统计
+当开启图片管理功能后，可在后台顶部查看记录中的图片数量
 
 ![](https://im.gurl.eu.org/file/b7a37c08dc2c504199824.png)
 
-4. Added image filename search
-When the image management feature is enabled, you can use the image filename in the backend search box to quickly search and locate the images you need to manage
+4、新增图片文件名搜索
+当开启图片管理功能后，可在后台搜索框使用图片文件名称，快速搜索定位需要管理的图片
 
 ![](https://im.gurl.eu.org/file/faf6d59a7d4a48a555491.png)
 
-5. Added image status display
-When the image management feature is enabled, you can view the current status of the image in the backend { "ListType": "None", "TimeStamp": 1673984678274 }
-ListType indicates whether the image is currently in the blacklist or whitelist. None means it's neither in the blacklist nor the whitelist, White means it's in the whitelist, Block means it's in the blacklist. TimeStamp is the timestamp when the image was first loaded. If image review API is enabled, the image review result will also be displayed here, identified by Label
+5、新增图片状态显示
+当开启图片管理功能后，可在后台查看图片当前的状态{ "ListType": "None", "TimeStamp": 1673984678274 }
+ListType代表图片当前是否在黑白名单当中，None则表示既不在黑名单中也不在白名单中，White表示在在白名单中，Block表示在黑名单中，TimeStamp为图片首次加载的时间戳，如开启的图片审查API，则这里还会显示图片审查的结果用Label标识
 
 ![](https://im.gurl.eu.org/file/6aab78b83bbd8c249ee29.png)
 
-6. Added blacklist feature
-When the image management feature is enabled, you can manually add images to the blacklist in the backend. Images on the blacklist will not load properly
+6、新增黑名单功能
+当开启图片管理功能后，可在后台手动为图片加入黑名单，加入黑名单的图片将无法正常加载
 
 ![](https://im.gurl.eu.org/file/fb18ef006a23677a52dfe.png)
 
-7. Added whitelist feature
-When the image management feature is enabled, you can manually add images to the whitelist in the backend. Images on the whitelist will always load properly, bypassing the image review API results
+7、新增白名单功能
+当开启图片管理功能后，可在后台手动为图片加入白名单，加入白名单的图片无论如何都会正常加载，可绕过图片审查API的结果
 
 ![](https://im.gurl.eu.org/file/2193409107d4f2bcd00ee.png)
 
-8. Added record deletion feature
-When the image management feature is enabled, you can manually delete image records in the backend, which means the image will no longer be displayed in the backend unless someone uploads and loads the image again. Note that since images are stored on telegraph's server, we cannot delete the originally uploaded images. We can only block image loading through the blacklist feature mentioned in point 6 above
+8、新增记录删除功能
+当开启图片管理功能后，可在后台手动删除图片记录，即不再后台显示该图片，除非有人再次上传并加载该图片，注意由于图片储存在telegraph的服务器上，我们无法删除上传的原始图片，只能通过上述第6点的黑名单功能屏蔽图片的加载
 
-9. Added program running mode: Whitelist mode
-When the image management feature is enabled, in addition to the default mode, this update also adds a new running mode. In this mode, only images added to the whitelist will be loaded. Uploaded images need to be approved before they can be displayed, which prevents inappropriate images from loading to the greatest extent. To enable, please set the environment variable: WhiteList_Mode=="true"
+9、新增程序运行模式：白名单模式
+当开启图片管理功能后，除了默认模式外，这次更新还新增了一项新的运行模式，在该模式下，只有被添加进白名单的图片才会被加载，上传的图片需要审核通过后才能展示，最大程度的防止不良图片的加载，如需开启请设置环境变量：WhiteList_Mode=="true"
 
-10. Added backend image preview feature
-When the image management feature is enabled, you can preview images loaded through your domain in the backend. Click on images to zoom in, zoom out, rotate, and perform other operations
+10、新增后台图片预览功能
+当开启图片管理功能后，可在后台预览通过你的域名加载过的图片，点击图片可以进行放大，缩小，旋转等操作
 
 ![](https://im.gurl.eu.org/file/740cd5a69672de36133a2.png)
 
-## How to Update if Already Deployed?
+## 已经部署了的，如何更新？
+其实更新非常简单，只需要参照上面的更新内容，先进入到Cloudflare Pages后台，把需要使用的环境变量提前设置好并绑定上KV命名空间，然后去到Github你之前fork过的仓库依次选择`Sync fork`->`Update branch`即可，稍等一会，Cloudflare Pages那边检测到你的仓库更新了之后就会自动部署最新的代码了
 
-Updating is actually very simple. Just refer to the update content above, first go to the Cloudflare Pages backend, set the required environment variables in advance and bind the KV namespace, then go to your previously forked repository on Github and select `Sync fork`->`Update branch`. After a while, Cloudflare Pages will detect that your repository has been updated and will automatically deploy the latest code
+## 一些限制：
+Cloudflare KV每天只有1000次的免费写入额度，每有一张新的图片加载都会占用该写入额度，如果超过该额度，图片管理后台将无法记录新加载的图片
 
-## Some Limitations:
+每天最多 100,000 次免费读取操作，图片每加载一次都会占用该额度（在没有缓存的情况下，如果你的域名在Cloudflare开启了缓存，当缓存未命中时才会占用该额度），超过黑白名单等功能可能会失效
 
-Cloudflare KV only has a free write quota of 1000 times per day. Each new image loaded will consume this write quota. If this quota is exceeded, the image management backend will not be able to record newly loaded images
+每天最多 1,000 次免费删除操作，每有一条图片记录都会占用该额度，超过将无法删除图片记录
 
-Maximum of 100,000 free read operations per day. Each image load will consume this quota (when there is no cache. If your domain has cache enabled on Cloudflare, this quota will only be consumed when the cache misses). If exceeded, blacklist and whitelist features may fail
+每天最多 1,000 次免费列出操作，每打开或刷新一次后台/admin都会占用该额度，超过将进行后台图片管理
 
-Maximum of 1,000 free delete operations per day. Each image record will consume this quota. If exceeded, you will not be able to delete image records
+绝大多数情况下，该免费额度都基本够用，并且可以稍微超出一点，不是已超出就立马停用，且每项额度单独计算，某项操作超出免费额度后只会停用该项操作，不影响其他的功能，即即便我的免费写入额度用完了，我的读写功能不受影响，图片能够正常加载，只是不能在图片管理后台看到新的图片了。
 
-Maximum of 1,000 free list operations per day. Each time you open or refresh the backend /admin, it will consume this quota. If exceeded, backend image management will be affected
+如果你的免费额度不够用，可以自行向Cloudflare购买Cloudflare Workers的付费版本，每月$5起步，按量收费，没有上述额度限制
 
-In most cases, the free quota is basically sufficient and can be slightly exceeded. It doesn't stop immediately when exceeded. Each quota is calculated separately. When a certain operation exceeds the free quota, only that operation will be suspended and will not affect other functions. That is, even if my free write quota is used up, my read and write functions are not affected, images can load normally, I just can't see new images in the image management backend.
-
-If your free quota is not enough, you can purchase the paid version of Cloudflare Workers from Cloudflare yourself, starting at $5 per month, pay-as-you-go, without the above quota limitations
-
-In addition, changes made to environment variables will take effect on the next deployment. If you changed `Environment Variables` to enable or disable a certain function, remember to redeploy.
+另外针对环境变量所做的更改将在下次部署时生效，如更改了`环境变量`，针对某项功能进行了开启或关闭，请记得重新部署。
 
 ![](https://im.gurl.eu.org/file/b514467a4b3be0567a76f.png)
 
-### Sponsorship
-
+### Sponsorship 
 This project is tested with BrowserStack.
 
 This project is support by [Cloudflare](https://www.cloudflare.com/).
