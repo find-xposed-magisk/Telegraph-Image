@@ -29,6 +29,8 @@ export function normalizeMetadata(metadata, id) {
     liked: metadata.liked !== undefined ? metadata.liked : false,
     fileName: metadata.fileName || id,
     fileSize: metadata.fileSize || 0,
+    ...(metadata.provider ? { provider: metadata.provider } : {}),
+    ...(metadata.shortId ? { shortId: metadata.shortId } : {}),
   };
 }
 

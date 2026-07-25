@@ -85,11 +85,13 @@ describe('manage API functions', function () {
     assert.strictEqual(img_url.snapshot('short:AbC123'), undefined);
   });
 
-  it('hides short link mapping keys from list results', async function () {
+  it('hides internal bookkeeping keys from list results', async function () {
     const { onRequest } = await import('../functions/api/manage/list.js');
     const img_url = createMockKV({
       'cat.png': baseMetadata,
+      'r2-1234abcd.png': baseMetadata,
       'short:AbC123': { value: 'cat.png', metadata: { target: 'cat.png' } },
+      'moderation:live-models': { value: '[]', metadata: null },
     });
 
     const res = await onRequest(makeContext({
@@ -99,7 +101,7 @@ describe('manage API functions', function () {
 
     assert.strictEqual(res.status, 200);
     const data = JSON.parse(await res.text());
-    assert.deepStrictEqual(data.keys.map(key => key.name), ['cat.png']);
+    assert.deepStrictEqual(data.keys.map(key => key.name), ['cat.png', 'r2-1234abcd.png']);
   });
 
   it('toggles the liked flag on an existing record', async function () {

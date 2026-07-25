@@ -14,10 +14,11 @@
 - [获取 Telegram Bot Token 和 Chat ID](#如何获取telegram的bot_token和chat_id)
 - [配置项一览](#配置项一览)：全部环境变量与 KV 绑定
 - [功能特性](#功能特性)
-- [可选功能开启指南](#可选功能开启指南)：后台管理 / 上传保护 / 短链接 / 图片审查 / 白名单模式 / 自定义域名
+- [可选功能开启指南](#可选功能开启指南)：后台管理 / 上传保护 / 短链接 / 图片审查 / 防盗链 / R2 存储 / 站点自定义 / 白名单模式 / 自定义域名
 - [API 上传](#api-上传)
 - [使用限制与免费额度](#使用限制与免费额度)
 - [已经部署了的，如何更新？](#已经部署了的如何更新)
+- [常见问题](#常见问题)
 - [本地开发与测试](#本地开发与测试)
 - [更新日志](#更新日志)
 
@@ -79,15 +80,26 @@
 | `UPLOAD_BASIC_PASS` | `strong-password`      | 上传入口的 Basic Auth 密码，需要和 `UPLOAD_BASIC_USER` 同时设置。 |
 | `ENABLE_SHORT_URLS` | `true`                 | 开启后（需绑定 KV）上传将返回形如 `/file/AbC123` 的短链接，原有长链接依然有效。 |
 | `SHORT_URL_LENGTH`  | `6`                    | 短链接 ID 长度（4-16，默认 6），仅在开启短链接时生效。 |
-| `ModerateContentApiKey` | `abc123`           | 开启图片审查，值为 [moderatecontent.com](https://moderatecontent.com/) 的 API key。 |
+| `MODERATION_PROVIDER` | `cloudflare-ai`      | 图片审查服务：`cloudflare-ai`（Workers AI，推荐）、`moderatecontent`（旧版）或 `none`。不设置时自动检测：有 `ModerateContentApiKey` 用 moderatecontent，有 `AI` 绑定用 Workers AI。详见[开启图片审查](#开启图片审查)。 |
+| `MODERATION_AI_MODEL` | `@cf/meta/llama-3.2-11b-vision-instruct` | `cloudflare-ai` 审查所使用的 Workers AI 模型。不设置时按内置的现役视觉模型降级链依次尝试，Cloudflare 下线某个模型时会自动降级而不是失效。 |
+| `CF_ACCOUNT_ID` / `CF_API_TOKEN` | `abc123` / `token` | 可选，两者同时设置即开启**实时模型发现**：审查模型链改为从 Cloudflare 的现役模型目录实时构建（结果在 KV 中缓存 6 小时），已下线的模型自动剔除、新上线的视觉模型自动加入。Token 只需要 "Workers AI: Read" 一项权限。 |
+| `ModerateContentApiKey` | `abc123`           | 旧版图片审查，值为 [moderatecontent.com](https://moderatecontent.com/) 的 API key。**该服务已停止新用户注册**，新部署请改用 Workers AI。 |
+| `ALLOWED_REFERERS`  | `myblog.com,*.example.com` | 防盗链：允许引用你文件的域名白名单（逗号分隔）。不设置则不限制；空 Referer（直接访问、API 客户端）和你自己的域名始终放行。 |
+| `STORAGE_PROVIDER`  | `telegram`             | 上传文件的存储后端：`telegram`（默认）或 `r2`（需绑定 `img_r2`）。每个文件都会记住自己存在哪里，切换后旧文件依然可以正常加载。 |
+| `SITE_NAME`         | `My Images`            | 首页顶部显示的站点名称（通过 `GET /api/config` 下发给前端）。 |
+| `SITE_TITLE`        | `My Images \| Home`    | 首页的浏览器标签页标题。 |
+| `SITE_BACKGROUND`   | `https://.../bg.jpg`   | 首页背景图 URL。 |
+| `HIDE_ADMIN_ENTRY`  | `true`                 | 隐藏首页上的后台入口链接（/admin 页面本身仍可访问）。 |
 | `WhiteList_Mode`    | `true`                 | 白名单模式：只有加入白名单的图片才能被加载。 |
 | `disable_telemetry` | `true`                 | 退出远端遥测。 |
 
-KV 绑定（`设置`->`函数`->`KV 命名空间绑定`）：
+绑定（`设置`->`函数`）：
 
-| 变量名称 | 说明 |
-| ----------- | ----------- |
-| `img_url` | 绑定一个提前创建好的 KV 命名空间，即可开启后台图片管理；短链接功能也依赖此绑定 |
+| 类型 | 变量名称 | 说明 |
+| ----------- | ----------- | ----------- |
+| KV 命名空间 | `img_url` | 绑定一个提前创建好的 KV 命名空间，即可开启后台图片管理；短链接功能也依赖此绑定 |
+| R2 存储桶 | `img_r2` | 绑定一个提前创建好的 R2 存储桶，配合 `STORAGE_PROVIDER=r2` 使用 |
+| Workers AI | `AI` | 绑定 Workers AI 即可启用内置图片审查 |
 
 ## 功能特性
 
@@ -97,13 +109,17 @@ KV 绑定（`设置`->`函数`->`KV 命名空间绑定`）：
 
 3.无需购买域名，可以使用 Cloudflare Pages 提供的`*.pages.dev`的免费二级域名，同时也支持绑定自定义域名
 
-4.支持图片审查 API，可根据需要开启，开启后不良图片将自动屏蔽，不再加载
+4.可插拔的图片审查，可根据需要开启——内置支持 Cloudflare Workers AI（无需外部账号）与旧版 moderatecontent.com key，开启后不良图片将自动屏蔽，不再加载
 
 5.支持后台图片管理，可以对上传的图片进行在线预览，添加白名单，黑名单等操作
 
 6.支持图片、视频、音频等多种文件类型，可预览的文件（图片/视频/音频/PDF）直接在浏览器中打开，而不是强制下载
 
 7.支持可选的上传接口密码保护（Basic Auth）与可选的短链接功能，按需通过环境变量开启
+
+8.可插拔的存储后端：文件默认存储在 Telegram，也可通过一个环境变量切换到 Cloudflare R2 存储桶——切换后旧链接依然有效
+
+9.批量上传，支持拖拽和粘贴上传、逐文件进度显示，以及 URL / Markdown / BBCode / HTML 四种格式一键复制；可选的 Referer 白名单防盗链
 
 ## 可选功能开启指南
 
@@ -124,8 +140,8 @@ KV 绑定（`设置`->`函数`->`KV 命名空间绑定`）：
 
 | 变量名称 | 值 |
 | ----------- | ----------- |
-|BASIC_USER = | <后台管理页面登录用户名称>|
-|BASIC_PASS = | <后台管理页面登录用户密码>|
+| `BASIC_USER` | 后台管理页面登录用户名称 |
+| `BASIC_PASS` | 后台管理页面登录用户密码 |
 
 ![](https://im.gurl.eu.org/file/dff376498ac87cdb78071.png)
 
@@ -141,16 +157,40 @@ KV 绑定（`设置`->`函数`->`KV 命名空间绑定`）：
 
 ### 开启图片审查
 
-1.请前往https://moderatecontent.com/ 注册并获得一个免费的用于审查图像内容的 API key
+图片审查为可插拔设计，内置两种审查服务。每个文件只会在首次加载时审查一次，结论（`Label`）会记录在 KV 中，后续加载不再消耗审查额度。审查功能依赖 `img_url` KV 绑定。
 
-2.打开 Cloudflare Pages 的管理页面，依次点击`设置`，`环境变量`，`添加环境变量`
+**推荐方式：Cloudflare Workers AI（无需注册任何外部服务）**
 
-3.添加一个`变量名称`为`ModerateContentApiKey`，`值`为你刚刚第一步获得的`API key`，点击`保存`即可
+1. 打开 Pages 项目，依次进入`设置`->`函数`->`Workers AI 绑定`，添加一个变量名称为 `AI` 的绑定
+2. 重新部署即可——存在 `AI` 绑定时审查会自动启用（也可以显式设置 `MODERATION_PROVIDER=cloudflare-ai`）
 
-注意：由于所做的更改将在下次部署时生效，你或许还需要进入`部署`页面，重新部署一下该本项目
+默认使用 Llama 3.2 Vision 模型（`@cf/meta/llama-3.2-11b-vision-instruct`），可通过 `MODERATION_AI_MODEL` 更换。未指定时会按内置降级链依次尝试——即使 Cloudflare 未来下线了首选模型，审查也会自动落到下一个可用模型而不是直接失效；审查服务全部出错时也不会误伤图片（fail-open，出错放行）。Workers AI 有每日免费额度（10,000 neurons/天），由于每个文件只审查一次，一般完全够用。被判定为成人内容的文件会被屏蔽并跳转到拦截页。
 
-开启图片审查后，因为审查需要时间，首次的图片加载将会变得缓慢，之后的图片加载由于存在缓存，并不会受到影响
-![3](https://telegraph-image.pages.dev/file/bae511fb116b034ef9c14.png)
+**可选：实时模型发现。**`AI` 绑定只能运行模型、不能列出模型，所以模型链的更新通常依赖本仓库升级。如果不想依赖这一点，可以设置 `CF_ACCOUNT_ID` 和 `CF_API_TOKEN`（只需 "Workers AI: Read" 一项权限的 Token）：审查模型链将改为从 Cloudflare 的[现役模型目录](https://developers.cloudflare.com/api/resources/ai/subresources/models/methods/list/)实时构建——超过下线日期的模型自动剔除，当前在服务的视觉模型自动追加。目录结果在 KV 中缓存 6 小时；目录接口不可用时自动退回内置模型链，行为与不配置时一致。
+
+**旧版方式：moderatecontent.com**
+
+> [!WARNING]
+> moderatecontent.com 已停止接受新用户注册，此服务仅为已持有可用 API key 的部署保留。另外它只能审查通过旧 Telegraph 通道上传的文件（它需要从 `telegra.ph` 拉取图片），经 Telegram Bot API 上传的文件无法被它审查——请改用 Workers AI。
+
+如果你已有可用的 key，照旧设置 `ModerateContentApiKey` 即可，行为保持不变。如需彻底关闭审查（无视其他配置），设置 `MODERATION_PROVIDER=none`。
+
+### 防盗链
+
+默认关闭。将 `ALLOWED_REFERERS` 设置为允许引用你文件的域名列表（逗号分隔），例如 `myblog.com,*.example.com`（`*.` 前缀会匹配该域名本身及其全部子域名）。来自其他网站的引用请求会收到 `403`。没有 Referer 的请求（浏览器直接访问、curl、原生 App）以及来自你自己域名的请求始终放行，因此开启该功能不会影响直链的正常使用。
+
+### R2 存储
+
+默认文件存储在 Telegram。如需将新上传的文件改存到 Cloudflare R2（没有 20MB 加载限制、没有 Telegram 速率限制，但受 [R2 免费额度](https://developers.cloudflare.com/r2/pricing/)约束）：
+
+1. 创建一个 R2 存储桶，在`设置`->`函数`->`R2 存储桶绑定`中以变量名称 `img_r2` 绑定
+2. 设置环境变量 `STORAGE_PROVIDER=r2` 并重新部署
+
+任何时候切换都是安全的：R2 的文件 ID 自带标识（`/file/r2-...`），切换后之前存在 Telegram 的文件依然正常加载，反之亦然。
+
+### 站点自定义
+
+首页加载时会从 `GET /api/config` 读取配置，因此无需修改任何 HTML 即可完成个性化：设置 `SITE_NAME`（顶部站点名）、`SITE_TITLE`（浏览器标签页标题）、`SITE_BACKGROUND`（背景图 URL），以及 `HIDE_ADMIN_ENTRY=true` 隐藏后台入口链接。如果你基于本项目后端自行开发前端，也可以直接使用这个接口。
 
 ### 白名单模式
 
@@ -183,9 +223,12 @@ curl -u uploader:strong-password -F "file=@/path/to/image.png" https://your.doma
 
 该接口可配合 PicGo 等支持自定义 Web 图床的上传工具使用。
 
+> [!NOTE]
+> 使用 Telegram 存储（默认）时，上传受 Telegram Bot API 速率限制约束：**每个频道约 20 条消息/分钟**。批量上传超过该速率时会开始收到 Telegram 报错——请控制批量上传的节奏，或改用没有此限制的 [R2 存储](#r2-存储)。
+
 ## 使用限制与免费额度
 
-1.目前图片文件通过 Telegram Bot API 上传并存储于 Telegram，上传单个文件大小受 Telegram Bot API 限制（约 50MB）；但 Bot API 的文件下载接口（getFile）最大仅支持 20MB，超过 20MB 的文件上传后将无法正常加载，因此实际可用的单文件大小请以 20MB 为准
+1.目前图片文件默认通过 Telegram Bot API 上传并存储于 Telegram，上传单个文件大小受 Telegram Bot API 限制（约 50MB）；但 Bot API 的文件下载接口（getFile）最大仅支持 20MB，超过 20MB 的文件上传后将无法正常加载，因此实际可用的单文件大小请以 20MB 为准。此外 Telegram 对 Bot 有每频道约 20 条消息/分钟的速率限制，会制约持续批量上传的吞吐。改用 [R2 存储](#r2-存储)后这两项限制均不存在
 
 2.由于使用 Cloudflare 的网络，图片的加载速度在某些地区可能得不到保证
 
@@ -212,6 +255,20 @@ curl -u uploader:strong-password -F "file=@/path/to/image.png" https://your.doma
 
 也可以开启自动同步：fork 之后前往你仓库的 Actions 页面启用 Workflows 并开启 Upstream Sync Action，即可每小时自动与上游同步（详见[更新日志](#更新日志) 2024 年 7 月部分的图文说明）。
 
+## 常见问题
+
+**部署报错 "Missing entry-point to Worker script or to assets directory"**
+
+这是因为项目被当作 Worker 部署了（例如执行了 `wrangler deploy`，或在连接仓库时选择了"Workers"）。本仓库没有 Worker 入口文件，它是一个使用文件路由 Functions 的 **Pages** 项目。请通过 `Workers 和 Pages`->`创建`-> **`Pages`** ->`连接到 Git` 部署，构建命令留空，构建输出目录填 `/`。如使用命令行，对应命令是 `wrangler pages deploy .`，而不是 `wrangler deploy`。
+
+**图片突然无法加载 / 上传开始失败**
+
+请检查 Telegram 速率限制（每频道约 20 条消息/分钟，见 [API 上传](#api-上传)）和 [Cloudflare 免费额度](#使用限制与免费额度)，并确认 `TG_Bot_Token`、`TG_Chat_ID` 设置正确且 Bot 仍是频道管理员。
+
+**修改环境变量后立即生效吗？**
+
+不会——修改环境变量或绑定后，需要前往`部署`页面重新部署一次才会生效。
+
 ## 本地开发与测试
 
 ```bash
@@ -225,6 +282,15 @@ npm test    # 运行单元测试（mocha）
 Hostloc @feixiang 和@乌拉擦 提供的思路和代码
 
 ## 更新日志
+2026 年 7 月 19 日--可插拔存储与审查、全新首页、防盗链
+
+- **图片审查改为可插拔架构**，新增基于 Cloudflare Workers AI 的内置审查（绑定 `AI` 即可，无需任何外部账号）——moderatecontent.com 已停止注册，其对应服务仅为存量 key 保留；审查结论现在会按文件缓存，每个文件至多审查一次（#203/#196/#174/#166/#85/#49）
+- **存储改为可插拔架构**：设置 `STORAGE_PROVIDER=r2` 并绑定 `img_r2` R2 存储桶后，新上传的文件存入 Cloudflare R2，摆脱 20MB 加载上限和 Telegram 速率限制；Telegram 仍为默认后端，切换后旧文件照常加载（#181/#118）
+- **重写首页为零构建依赖的单文件页面**，支持批量上传、拖拽上传、粘贴上传、逐文件进度显示，以及 URL/Markdown/BBCode/HTML 链接一键复制；旧版 Nuxt 页面保留在 `/index-nuxt.html`（#2/#5/#51/#92/#123/#156/#194）
+- **通过环境变量自定义站点**：`SITE_NAME`、`SITE_TITLE`、`SITE_BACKGROUND`、`HIDE_ADMIN_ENTRY`，经由新增的 `GET /api/config` 接口下发，任何自定义前端均可使用（#55/#84/#107/#138/#195）
+- **新增防盗链**：`ALLOWED_REFERERS` Referer 白名单，默认关闭、完全向后兼容（#78/#121）
+- 文档补充 Telegram 每频道约 20 条消息/分钟的速率限制说明（#245），新增"Missing entry-point"部署报错的常见问题解答（#267）
+
 2026 年 7 月 19 日--上传保护、短链接与预览体验更新
 
 - 新增上传接口的可选 Basic Auth 保护，通过 `UPLOAD_BASIC_USER` 和 `UPLOAD_BASIC_PASS` 开启，感谢 @ytagent 和 @lelouch0823（#278/#279）
@@ -283,8 +349,8 @@ Hostloc @feixiang 和@乌拉擦 提供的思路和代码
 2、后台管理页面新增登录验证功能，默认也是关闭的，如需开启请部署完成后前往后台依次点击`设置`->`环境变量`->`为生产环境定义变量`->`编辑变量` 添加如下表格所示的变量即可开启登录验证
 | 变量名称 | 值 |
 | ----------- | ----------- |
-|BASIC_USER = | <后台管理页面登录用户名称>|
-|BASIC_PASS = | <后台管理页面登录用户密码>|
+| `BASIC_USER` | 后台管理页面登录用户名称 |
+| `BASIC_PASS` | 后台管理页面登录用户密码 |
 
 ![](https://im.gurl.eu.org/file/dff376498ac87cdb78071.png)
 

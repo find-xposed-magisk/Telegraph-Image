@@ -14,10 +14,11 @@ English|[中文](README-zh.md)
 - [How to Obtain Telegram Bot Token and Chat ID](#how-to-obtain-telegram-bot_token-and-chat_id)
 - [Configuration Reference](#configuration-reference): all environment variables and the KV binding
 - [Features](#features)
-- [Optional Features Guide](#optional-features-guide): dashboard / upload protection / short links / image review / whitelist mode / custom domain
+- [Optional Features Guide](#optional-features-guide): dashboard / upload protection / short links / image review / anti-hotlinking / R2 storage / site customization / whitelist mode / custom domain
 - [Upload API](#upload-api)
 - [Limitations and Free Quotas](#limitations-and-free-quotas)
 - [How to Update if Already Deployed?](#how-to-update-if-already-deployed)
+- [FAQ](#faq)
 - [Local Development and Testing](#local-development-and-testing)
 - [Update Log](#update-log)
 
@@ -79,15 +80,26 @@ Optional environment variables (enable features as needed, see the [Optional Fea
 | `UPLOAD_BASIC_PASS` | `strong-password`         | Password for protecting the public upload endpoint. Must be set together with `UPLOAD_BASIC_USER`. |
 | `ENABLE_SHORT_URLS` | `true`                    | When enabled (and a KV namespace is bound), uploads return a short link like `/file/AbC123` instead of the long file name. Existing long links keep working. |
 | `SHORT_URL_LENGTH`  | `6`                       | Length of generated short ids (4-16, default 6). Only used when `ENABLE_SHORT_URLS` is on. |
-| `ModerateContentApiKey` | `abc123`              | Enables image review; the value is an API key from [moderatecontent.com](https://moderatecontent.com/). |
+| `MODERATION_PROVIDER` | `cloudflare-ai`         | Image review provider: `cloudflare-ai` (Workers AI, recommended), `moderatecontent` (legacy), or `none`. When unset, auto-detects: a `ModerateContentApiKey` selects `moderatecontent`, an `AI` binding selects `cloudflare-ai`. See [Enable Image Review](#enable-image-review). |
+| `MODERATION_AI_MODEL` | `@cf/meta/llama-3.2-11b-vision-instruct` | Workers AI model used by the `cloudflare-ai` review provider. When unset, a built-in fallback chain of current vision models is tried in order, so a model being retired by Cloudflare degrades gracefully. |
+| `CF_ACCOUNT_ID` / `CF_API_TOKEN` | `abc123` / `token` | Optional, together enable **live model discovery**: the review model chain is built from Cloudflare's current model catalog (cached in KV for 6h) instead of the built-in list, so retired models drop out and new vision models join automatically. The token only needs the "Workers AI: Read" permission. |
+| `ModerateContentApiKey` | `abc123`              | Legacy image review via [moderatecontent.com](https://moderatecontent.com/). **The service has stopped accepting new registrations** — new deployments should use Workers AI instead. |
+| `ALLOWED_REFERERS`  | `myblog.com,*.example.com` | Anti-hotlinking: comma-separated list of hostnames allowed to embed your files. Unset = no restriction. Empty referers (direct visits, API clients) and your own domain are always allowed. |
+| `STORAGE_PROVIDER`  | `telegram`                | Where uploaded files are stored: `telegram` (default) or `r2` (requires the `img_r2` binding). Files remain readable regardless of the current setting — each file remembers where it lives. |
+| `SITE_NAME`         | `My Images`               | Site name shown in the homepage header (served to the frontend via `GET /api/config`). |
+| `SITE_TITLE`        | `My Images \| Home`       | Browser tab title of the homepage.                                                    |
+| `SITE_BACKGROUND`   | `https://.../bg.jpg`      | Background image URL for the homepage.                                                |
+| `HIDE_ADMIN_ENTRY`  | `true`                    | Hides the dashboard link on the homepage (the /admin page itself stays reachable).    |
 | `WhiteList_Mode`    | `true`                    | Whitelist mode: only whitelisted images can be loaded.                                |
 | `disable_telemetry` | `true`                    | Opt out of remote telemetry.                                                          |
 
-KV binding (`Settings` -> `Functions` -> `KV namespace bindings`):
+Bindings (`Settings` -> `Functions`):
 
-| Variable Name | Description |
-| ----------- | ----------- |
-| `img_url` | Bind a pre-created KV namespace to enable the image management dashboard; the short links feature also requires this binding |
+| Type | Variable Name | Description |
+| ----------- | ----------- | ----------- |
+| KV namespace | `img_url` | Bind a pre-created KV namespace to enable the image management dashboard; the short links feature also requires this binding |
+| R2 bucket | `img_r2` | Bind a pre-created R2 bucket to enable `STORAGE_PROVIDER=r2` |
+| Workers AI | `AI` | Bind Workers AI to enable the built-in image review provider |
 
 ## Features
 
@@ -97,13 +109,17 @@ KV binding (`Settings` -> `Functions` -> `KV namespace bindings`):
 
 3. No need to purchase a domain name, you can use the free second-level domain `*.pages.dev` provided by Cloudflare Pages, and also supports binding custom domain names
 
-4. Supports image review API, can be enabled as needed. When enabled, inappropriate images will be automatically blocked and no longer loaded
+4. Pluggable image review, can be enabled as needed — built-in support for Cloudflare Workers AI (no external account) and legacy moderatecontent.com keys. When enabled, inappropriate images will be automatically blocked and no longer loaded
 
 5. Supports backend image management, allowing you to preview uploaded images online, add to whitelist, blacklist, and other operations
 
 6. Supports multiple file types (images, videos, audio, and more). Previewable files (images/video/audio/PDF) open directly in the browser instead of being force-downloaded
 
 7. Optional Basic Auth protection for the upload endpoint and optional short links, both enabled on demand via environment variables
+
+8. Pluggable storage: files live on Telegram by default, or in a Cloudflare R2 bucket with one environment variable — old links keep working either way
+
+9. Batch upload with drag & drop and paste support, per-file progress, and one-click copy as URL / Markdown / BBCode / HTML; optional anti-hotlinking via a referer allowlist
 
 ## Optional Features Guide
 
@@ -124,8 +140,8 @@ Disabled by default. To enable, add the following environment variables:
 
 | Variable Name | Value |
 | ----------- | ----------- |
-|BASIC_USER = | <Dashboard login username>|
-|BASIC_PASS = | <Dashboard login password>|
+| `BASIC_USER` | Dashboard login username |
+| `BASIC_PASS` | Dashboard login password |
 
 ![](https://im.gurl.eu.org/file/dff376498ac87cdb78071.png)
 
@@ -141,16 +157,40 @@ Disabled by default. With a KV namespace bound and `ENABLE_SHORT_URLS=true`, upl
 
 ### Enable Image Review
 
-1. Please go to https://moderatecontent.com/ to register and get a free API key for reviewing image content
+Image review is pluggable. Two providers are built in, and each file is only reviewed once — the verdict is stored in KV (`Label`), so later loads are fast and consume no review quota. Review requires the `img_url` KV binding.
 
-2. Open the Cloudflare Pages management page, click `Settings`, `Environment Variables`, `Add Environment Variables` in sequence
+**Recommended: Cloudflare Workers AI (no external account needed)**
 
-3. Add a `variable name` as `ModerateContentApiKey`, `value` as the `API key` you just obtained in step 1, then click `Save`
+1. Open your Pages project, go to `Settings` -> `Functions` -> `Workers AI bindings`, add a binding with the variable name `AI`
+2. Redeploy. That's it — with an `AI` binding present, review is enabled automatically (or set `MODERATION_PROVIDER=cloudflare-ai` explicitly)
 
-Note: Since the changes will take effect on the next deployment, you may also need to go to the `Deployments` page and redeploy the project
+The default model is Llama 3.2 Vision (`@cf/meta/llama-3.2-11b-vision-instruct`); override it with `MODERATION_AI_MODEL`. When no override is set, a built-in fallback chain is tried in order — if Cloudflare ever retires the primary model, review automatically falls through to the next one instead of breaking, and a review failure never blocks an image (fail-open). Workers AI has a free daily allocation (10,000 neurons/day) which is typically plenty, since each image is only reviewed on its first load. Files flagged as adult content are blocked and redirect to the block page.
 
-After enabling image review, the first image load will be slow because review takes time. Subsequent image loads will not be affected due to caching
-![3](https://telegraph-image.pages.dev/file/bae511fb116b034ef9c14.png)
+**Optional: live model discovery.** The `AI` binding can only run models, not list them, so keeping the chain current normally means updating this repo. If you'd rather not depend on that, set `CF_ACCOUNT_ID` and `CF_API_TOKEN` (a token with just the "Workers AI: Read" permission): the review chain is then built from Cloudflare's [live model catalog](https://developers.cloudflare.com/api/resources/ai/subresources/models/methods/list/) — models past their deprecation date are dropped and currently-served vision models are appended automatically. The catalog is cached in KV for 6 hours, and if the catalog API is ever unreachable the built-in chain is used as before.
+
+**Legacy: moderatecontent.com**
+
+> [!WARNING]
+> moderatecontent.com has stopped accepting new registrations. This provider is kept only for deployments that already have a working API key. Note that it can only review files uploaded through the old Telegraph channel (it fetches the image from `telegra.ph`); files uploaded via the Telegram Bot API cannot be reviewed by it — use the Workers AI provider instead.
+
+If you have an existing key, set `ModerateContentApiKey` as before; it keeps working unchanged. To turn review off entirely regardless of other settings, set `MODERATION_PROVIDER=none`.
+
+### Anti-Hotlinking
+
+Disabled by default. Set `ALLOWED_REFERERS` to a comma-separated list of hostnames allowed to embed your files, e.g. `myblog.com,*.example.com` (the `*.` prefix matches the domain and all of its subdomains). Requests from other sites receive `403`. Requests with no referer (direct browser visits, curl, native apps) and requests from your own domain are always allowed, so enabling this never breaks direct links.
+
+### R2 Storage
+
+By default files are stored on Telegram. To store new uploads in Cloudflare R2 instead (no 20MB serving limit, no Telegram rate limits, but subject to [R2 free quota](https://developers.cloudflare.com/r2/pricing/)):
+
+1. Create an R2 bucket, then in `Settings` -> `Functions` -> `R2 bucket bindings` add it with the variable name `img_r2`
+2. Set the environment variable `STORAGE_PROVIDER=r2` and redeploy
+
+Switching is safe at any time: R2 file ids are self-describing (`/file/r2-...`), so previously uploaded Telegram files keep loading even after you switch, and vice versa.
+
+### Site Customization
+
+The homepage reads its configuration from `GET /api/config` at load time, so you can rebrand without editing any HTML: set `SITE_NAME` (header), `SITE_TITLE` (browser tab), `SITE_BACKGROUND` (background image URL), and `HIDE_ADMIN_ENTRY=true` to hide the dashboard link. The same endpoint is available to any custom frontend you build against this backend.
 
 ### Whitelist Mode
 
@@ -183,9 +223,12 @@ curl -u uploader:strong-password -F "file=@/path/to/image.png" https://your.doma
 
 The endpoint works with upload tools that support custom web image hosts, such as PicGo.
 
+> [!NOTE]
+> When storing to Telegram (the default), uploads are subject to Telegram's Bot API rate limit of roughly **20 messages per minute per channel**. Batch uploads that exceed this rate will start failing with Telegram errors — space out large batches, or switch to [R2 storage](#r2-storage), which has no such limit.
+
 ## Limitations and Free Quotas
 
-1. Files are uploaded via the Telegram Bot API and stored on Telegram's servers. Uploads are limited by the Bot API (about 50MB per file), but the Bot API file download endpoint (getFile) only supports files up to 20MB, so files larger than 20MB cannot be served back after upload — treat 20MB as the practical per-file limit
+1. Files are uploaded via the Telegram Bot API and stored on Telegram's servers. Uploads are limited by the Bot API (about 50MB per file), but the Bot API file download endpoint (getFile) only supports files up to 20MB, so files larger than 20MB cannot be served back after upload — treat 20MB as the practical per-file limit. Telegram also rate-limits bots to about 20 messages per minute per channel, which caps sustained upload throughput. Both limits disappear when using [R2 storage](#r2-storage) instead
 
 2. Due to the use of Cloudflare's network, image loading speed may not be guaranteed in some regions
 
@@ -212,6 +255,20 @@ Updating is actually very simple. Just refer to the update log, first go to the 
 
 You can also enable automatic syncing: after forking, go to your repository's Actions page, enable Workflows and the Upstream Sync Action to sync with upstream hourly (see the July 2024 section of the [Update Log](#update-log) for illustrated instructions).
 
+## FAQ
+
+**Deployment fails with "Missing entry-point to Worker script or to assets directory"**
+
+This happens when the project is deployed as a Worker instead of a Pages project (e.g. `wrangler deploy`, or picking "Workers" when connecting the repository). This repository has no Worker entry point — it is a **Pages** project using file-based Functions. Deploy it via `Workers & Pages` -> `Create` -> **`Pages`** -> `Connect to Git`, leave the build command empty, and set the build output directory to `/`. From the CLI, the equivalent is `wrangler pages deploy .`, not `wrangler deploy`.
+
+**Images stopped loading / uploads fail after a while**
+
+Check the Telegram rate limit (about 20 messages per minute per channel, see [Upload API](#upload-api)) and the [Cloudflare free quotas](#limitations-and-free-quotas). Also make sure `TG_Bot_Token` and `TG_Chat_ID` are set and the bot is still an administrator of the channel.
+
+**Does changing an environment variable take effect immediately?**
+
+No — go to `Deployments` and redeploy once after any change to environment variables or bindings.
+
 ## Local Development and Testing
 
 ```bash
@@ -225,6 +282,15 @@ npm test    # run the unit tests (mocha)
 Ideas and code provided by Hostloc @feixiang and @乌拉擦
 
 ## Update Log
+July 19, 2026 - Pluggable Storage & Review, New Homepage, Anti-Hotlinking
+
+- **Image review is now pluggable**, with a new built-in provider based on Cloudflare Workers AI (bind `AI`, no external account needed) — moderatecontent.com has stopped accepting registrations and its provider is kept for legacy keys only; review verdicts are now cached per file, so each file is reviewed at most once (#203/#196/#174/#166/#85/#49)
+- **Storage is now pluggable**: `STORAGE_PROVIDER=r2` with an `img_r2` R2 bucket binding stores new uploads in Cloudflare R2, lifting the 20MB serving limit and Telegram rate limits; Telegram remains the default and old files keep loading either way (#181/#118)
+- **Rebuilt the homepage as a dependency-free single file** with batch upload, drag & drop, paste-to-upload, per-file progress, and URL/Markdown/BBCode/HTML link copying; the old Nuxt page remains at `/index-nuxt.html` (#2/#5/#51/#92/#123/#156/#194)
+- **Site customization via environment variables**: `SITE_NAME`, `SITE_TITLE`, `SITE_BACKGROUND`, `HIDE_ADMIN_ENTRY`, served to any frontend through the new `GET /api/config` endpoint (#55/#84/#107/#138/#195)
+- **Anti-hotlinking** via the `ALLOWED_REFERERS` referer allowlist, off by default and fully backward compatible (#78/#121)
+- Documented the Telegram ~20 messages/minute/channel rate limit (#245) and added a FAQ for the "Missing entry-point" deployment error (#267)
+
 July 19, 2026 - Upload Protection, Short Links, and Preview Update
 
 - Added optional Basic Auth protection for the upload endpoint via `UPLOAD_BASIC_USER` and `UPLOAD_BASIC_PASS`, thanks to @ytagent and @lelouch0823 (#278/#279)
@@ -283,8 +349,8 @@ January 18, 2023 - Image Management Feature Update
 2. The backend management page has a new login verification feature, also disabled by default. To enable, after deployment, go to the backend and click `Settings`->`Environment Variables`->`Define variables for production`->`Edit variables` and add the variables shown in the table below to enable login verification
 | Variable Name | Value |
 | ----------- | ----------- |
-|BASIC_USER = | <Backend management page login username>|
-|BASIC_PASS = | <Backend management page login password>|
+| `BASIC_USER` | Backend management page login username |
+| `BASIC_PASS` | Backend management page login password |
 
 ![](https://im.gurl.eu.org/file/dff376498ac87cdb78071.png)
 

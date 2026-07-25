@@ -3,13 +3,7 @@ import { authenticateUploadRequest } from "./utils/auth.js";
 import { jsonResponse } from "./utils/http.js";
 import { createDefaultMetadata, putMetadata } from "./utils/metadata.js";
 import { allocateShortId, isShortUrlsEnabled, putShortLink } from "./utils/shortlink.js";
-import {
-    createTelegramFormData,
-    getFileId,
-    getUploadTarget,
-    sendToTelegram,
-    validateTelegramConfig,
-} from "./utils/telegram.js";
+import { getUploadProvider } from "./storage/index.js";
 
 export async function onRequestPost(context) {
     const { request, env } = context;
@@ -20,7 +14,8 @@ export async function onRequestPost(context) {
             return authResponse;
         }
 
-        validateTelegramConfig(env);
+        const provider = getUploadProvider(env);
+        provider.validateConfig(env);
 
         const clonedRequest = request.clone();
         const formData = await clonedRequest.formData();
@@ -36,22 +31,7 @@ export async function onRequestPost(context) {
         const fileName = uploadFile.name;
         const fileExtension = fileName.split('.').pop().toLowerCase();
 
-        const { endpoint, field } = getUploadTarget(uploadFile);
-        const telegramFormData = createTelegramFormData(env.TG_Chat_ID, field, uploadFile);
-
-        const result = await sendToTelegram(telegramFormData, endpoint, env);
-
-        if (!result.success) {
-            throw new Error(result.error);
-        }
-
-        const fileId = getFileId(result.data);
-
-        if (!fileId) {
-            throw new Error('Failed to get file ID');
-        }
-
-        const longId = `${fileId}.${fileExtension}`;
+        const longId = await provider.upload(env, uploadFile, { fileName, fileExtension });
         let shortId = null;
 
         // 将文件信息保存到 KV 存储
@@ -63,6 +43,7 @@ export async function onRequestPost(context) {
             await putMetadata(env, longId, createDefaultMetadata(longId, {
                 fileName,
                 fileSize: uploadFile.size,
+                provider: provider.key,
                 ...(shortId ? { shortId } : {}),
             }));
 

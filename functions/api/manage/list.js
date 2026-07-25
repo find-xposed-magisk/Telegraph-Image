@@ -1,5 +1,5 @@
 import { jsonResponse } from "../../utils/http.js";
-import { isShortLinkKey } from "../../utils/shortlink.js";
+import { isInternalKey } from "../../utils/kv-keys.js";
 
 export async function onRequest(context) {
   const { request, env } = context;
@@ -16,7 +16,7 @@ export async function onRequest(context) {
 
   return jsonResponse({
     ...value,
-    // Hide internal short-link mapping keys from the dashboard file list
-    keys: value.keys.filter(key => !isShortLinkKey(key.name)),
+    // Hide internal bookkeeping keys (short links, caches) from the file list
+    keys: value.keys.filter(key => !isInternalKey(key.name)),
   });
 }

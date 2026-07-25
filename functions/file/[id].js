@@ -1,11 +1,13 @@
 import {
+    LABEL,
     getOrCreateMetadata,
     isBlocked,
     isWhitelisted,
     putMetadata,
 } from "../utils/metadata.js";
-import { getTelegramFilePath } from "../utils/telegram.js";
 import { isShortUrlsEnabled, looksLikeShortId, resolveShortId } from "../utils/shortlink.js";
+import { getServingProvider } from "../storage/index.js";
+import { getModerationProvider } from "../moderation/index.js";
 
 export async function onRequest(context) {
     const {
@@ -15,14 +17,17 @@ export async function onRequest(context) {
     } = context;
 
     const url = new URL(request.url);
-    const fileId = await resolveRequestedId(env, params.id);
-    const fileUrl = await resolveFileUrl(env, url, fileId);
 
-    const response = await fetch(fileUrl, {
-        method: request.method,
-        headers: request.headers,
-        body: request.body,
-    });
+    // Anti-hotlinking: reject disallowed referers before spending upstream bandwidth
+    if (!isRefererAllowed(env, request, url)) {
+        return new Response('Hotlinking is not allowed on this deployment.', {
+            status: 403,
+            headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
+        });
+    }
+
+    const fileId = await resolveRequestedId(env, params.id);
+    const response = await getServingProvider(fileId).fetchFile(env, request, url, fileId);
 
     // If the response is OK, proceed with further checks
     if (!response.ok) return response;
@@ -56,7 +61,7 @@ export async function onRequest(context) {
     }
 
     // If no metadata or further actions required, moderate content and add to KV if needed
-    const moderationResult = await moderateFile(env, url, fileId, metadata);
+    const moderationResult = await moderateFile(env, url, fileId, metadata, response);
     if (moderationResult.blocked) {
         await putMetadata(env, fileId, metadata);
         return Response.redirect(`${url.origin}/block-img.html`, 302);
@@ -81,41 +86,70 @@ async function resolveRequestedId(env, requestedId) {
     return target || requestedId;
 }
 
-async function resolveFileUrl(env, url, fileId) {
-    // Same threshold as the old `url.pathname.length > 39` check ('/file/' + id):
-    // ids longer than 33 characters were uploaded via the Telegram Bot API.
-    if (fileId.length > 33) {
-        const filePath = await getTelegramFilePath(env, fileId.split(".")[0]);
-        return `https://api.telegram.org/file/bot${env.TG_Bot_Token}/${filePath}`;
+// ALLOWED_REFERERS is a comma-separated hostname allowlist ("example.com,*.example.org").
+// Empty referers (direct visits, curl, native apps) always pass, as does the
+// deployment's own origin; the feature is opt-in and off when the var is unset.
+function isRefererAllowed(env, request, url) {
+    const allowlist = String(env.ALLOWED_REFERERS || '')
+        .split(',')
+        .map(entry => entry.trim())
+        .filter(Boolean);
+
+    if (allowlist.length === 0) {
+        return true;
     }
 
-    return 'https://telegra.ph//file/' + fileId + url.search;
+    const referer = request.headers.get('Referer');
+    if (!referer) {
+        return true;
+    }
+
+    let refererHost;
+    try {
+        refererHost = new URL(referer).hostname.toLowerCase();
+    } catch {
+        return false;
+    }
+
+    if (refererHost === url.hostname.toLowerCase()) {
+        return true;
+    }
+
+    return allowlist.some(pattern => matchesHost(pattern.toLowerCase(), refererHost));
 }
 
-async function moderateFile(env, url, fileId, metadata) {
-    if (!env.ModerateContentApiKey) {
-        return { blocked: false };
+function matchesHost(pattern, host) {
+    if (pattern.startsWith('*.')) {
+        const base = pattern.slice(2);
+        return host === base || host.endsWith('.' + base);
+    }
+
+    return host === pattern;
+}
+
+async function moderateFile(env, url, fileId, metadata, response) {
+    // A stored verdict is final — re-moderating every view would burn provider
+    // quota (and for Workers AI, neuron allocation) for no new information.
+    if (metadata.Label && metadata.Label !== LABEL.NONE) {
+        return { blocked: isBlocked(metadata) };
     }
 
     try {
-        const moderateUrl = `https://api.moderatecontent.com/moderate/?key=${env.ModerateContentApiKey}&url=https://telegra.ph/file/${fileId}${url.search}`;
-        const moderateResponse = await fetch(moderateUrl);
+        const provider = getModerationProvider(env);
+        const label = await provider.moderate(env, {
+            fileId,
+            search: url.search,
+            response,
+        });
 
-        if (!moderateResponse.ok) {
-            console.error("Content moderation API request failed: " + moderateResponse.status);
-            return { blocked: false };
+        if (label) {
+            metadata.Label = label;
         }
-
-        const moderateData = await moderateResponse.json();
-        if (moderateData?.rating_label) {
-            metadata.Label = moderateData.rating_label;
-        }
-
-        return { blocked: isBlocked(metadata) };
     } catch (error) {
         console.error("Error during content moderation: " + error.message);
-        return { blocked: false };
     }
+
+    return { blocked: isBlocked(metadata) };
 }
 
 function withFileHeaders(response, filename) {
